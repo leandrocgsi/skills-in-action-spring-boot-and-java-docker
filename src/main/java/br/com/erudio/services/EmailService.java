@@ -1,0 +1,70 @@
+package br.com.erudio.services;
+
+import br.com.erudio.config.EmailConfig;
+import br.com.erudio.config.EmailDefaultsConfig;
+import br.com.erudio.data.dto.request.EmailRequestDTO;
+import br.com.erudio.mail.EmailSender;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
+import org.springframework.web.multipart.MultipartFile;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.json.JsonMapper;
+
+import java.io.File;
+import java.io.IOException;
+
+@Service
+public class EmailService {
+
+    @Autowired
+    private EmailSender emailSender;
+
+    @Autowired
+    private EmailConfig emailConfigs;
+
+    @Autowired
+    private EmailDefaultsConfig emailDefaults;
+
+    public void sendSimpleEmail(EmailRequestDTO emailRequest) {
+        emailSender
+            .to(emailRequest.getTo())
+            .withSubject(subjectOf(emailRequest))
+            .withMessage(messageOf(emailRequest))
+            .send(emailConfigs);
+    }
+
+    public void setEmailWithAttachment(String emailRequestJson, MultipartFile attachment) {
+        File tempFile = null;
+        try {
+            EmailRequestDTO emailRequest = JsonMapper.builder().enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES).build()
+                .readValue(emailRequestJson, EmailRequestDTO.class);
+            tempFile = File.createTempFile("attachment", attachment.getOriginalFilename());
+            attachment.transferTo(tempFile);
+
+            emailSender
+                .to(emailRequest.getTo())
+                .withSubject(subjectOf(emailRequest))
+                .withMessage(messageOf(emailRequest))
+                .attach(tempFile.getAbsolutePath(), attachment.getOriginalFilename())
+                .send(emailConfigs);
+
+        } catch (JacksonException e) {
+            throw new RuntimeException("Error parsing email request JSON!", e);
+        } catch (IOException e) {
+            throw new RuntimeException("Error processing the attachment!", e);
+        } finally {
+            if (tempFile != null && tempFile.exists()) tempFile.delete();
+        }
+
+    }
+
+    private String subjectOf(EmailRequestDTO emailRequest) {
+        return StringUtils.hasText(emailRequest.getSubject()) ? emailRequest.getSubject() : emailDefaults.getSubject();
+    }
+
+    private String messageOf(EmailRequestDTO emailRequest) {
+        return StringUtils.hasText(emailRequest.getBody()) ? emailRequest.getBody() : emailDefaults.getMessage();
+    }
+}
